@@ -184,7 +184,7 @@ Leads to:
 The source code (with documentation and test scripts) is available on
 [github][3].
 
-  [3]:  https://github.com/siffiejoe/lua-microscope
+  [3]:  https://github.com/siffiejoe/lua-microscope/
 
 
 ##                           Installation                           ##
@@ -203,16 +203,28 @@ somewhere into your Lua `package.path`.
   [4]:  http://luarocks.org/repositories/rocks/    (Main Repository)
 
 
-##                             Contact                              ##
+##                              Changes                             ##
+
+Version 0.3:
+
+*   Fixed long labels from `__tostring` metamethods
+*   Support for LuaJIT's `cdata` values
+
+Version 0.2:
+
+*   First public release.
+
+
+##                              Contact                             ##
 
 Philipp Janda, siffiejoe(a)gmx.net
 
 Comments and feedback are always welcome.
 
 
-##                             License                              ##
+##                              License                             ##
 
-microscope is *copyrighted free software* distributed under the MIT
+`microscope` is *copyrighted free software* distributed under the MIT
 license (the same license as Lua 5.1). The full license text follows:
 
     microscope (c) 2013 Philipp Janda

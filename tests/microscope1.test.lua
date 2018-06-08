@@ -7,6 +7,14 @@ local light = require( "light" )
 local full  = newproxy()
 local func  = function() end
 local co  = coroutine.create( function() end )
+local cdata, ctype
+do
+  local ok, ffi = pcall( require, "ffi" )
+  if ok then
+    ctype = ffi.metatype( "struct { int number; }", {} )
+    cdata = ffi.new( ctype )
+  end
+end
 
 local n = 0
 local function dot( v, label, ... )
@@ -27,18 +35,29 @@ dot( light, "plain light userdata value" )
 dot( full, "plain full userdata value" )
 dot( co, "plain coroutine/thread value" )
 dot( {}, "plain empty table value" )
+if ctype and cdata then
+  dot( ctype, "luajit ctype object" )
+  dot( cdata, "luajit cdata object" )
+end
 
 print( "testing all Lua types as table keys/values ..." )
-dot( {
-  [ true ] = false,
-  [ 123 ] = 456,
-  xyz = "abc",
-  [ func ] = func,
-  [ light ] = light,
-  [ full ] = full,
-  [ co ] = co,
-  [ {} ] = {},
-}, "all Lua types as table keys and values" )
+do
+  local t = {
+    [ true ] = false,
+    [ 123 ] = 456,
+    xyz = "abc",
+    [ func ] = func,
+    [ light ] = light,
+    [ full ] = full,
+    [ co ] = co,
+    [ {} ] = {}
+  }
+  if ctype and cdata then
+    t[ ctype ] = ctype
+    t[ cdata ] = cdata
+  end
+  dot( t, "all Lua types as table keys and values" )
+end
 
 print( "testing all Lua types as upvalues ..." )
 do
@@ -51,8 +70,10 @@ do
   local f = full
   local g = co
   local h = {}
+  local i = ctype
+  local j = cdata
   dot( function()
-    return _, a, b, c, d, e, f, g, h
+    return _, a, b, c, d, e, f, g, h, i, j
   end, "all Lua types as function upvalues" )
 end
 
@@ -270,15 +291,15 @@ do
 end
 
 print( "testing registry ..." )
-dot( "dummy", 2, "registry", "registry table with max_depth 2" )
+dot( "dummy", "registry table with max_depth 2", "registry", 2 )
 
 print( "testing locals and (no-)html option ..." )
 do
-  dot( "dummy", "locals", 3, microscope, "locals from main thread" )
+  dot( "dummy", "locals from main thread", "locals", 3, microscope )
 
   local function f1( arg1 )
-    dot( "dummy", "locals", 3, microscope,
-         "locals from active coroutine" )
+    dot( "dummy", "locals from main active coroutine",
+         "locals", 3, microscope )
     coroutine.yield( arg1 )
   end
 
@@ -297,10 +318,10 @@ do
 
   local function f3( v, n )
     for i = 1, n do
-      dot( v, "locals", 3, microscope,
-           "locals with max_depth 3 (html version)" )
-      dot( v, "locals", "nohtml", 3, microscope,
-           "locals with max_depth 3 (nohtml version)" )
+      dot( v, "locals with max_depth 3 (html version)",
+           "locals", 3, microscope )
+      dot( v, "locals with max_depth 3 (nohtml version)",
+           "locals", "nohtml", 3, microscope )
     end
   end
 
@@ -406,5 +427,19 @@ print( "testing alternative output function ..." )
 microscope( function( s ) print( ">", s ) end, nil )
 
 print( "testing for old bugs ..." )
+do
+  local t = {}
+  setmetatable( t, {
+    __tostring = function( v )
+      return "table: abcdefghijklmnopqrstuvwxyz0123456789"
+    end
+  } )
+  local u = newproxy( true )
+  getmetatable( u ).__tostring = function( u )
+    return "udata: abcdefghijklmnopqrstuvwxyz0123456789"
+  end
+  dot( { t, u }, "abbreviation in table cells" )
+end
+
 -- TODO ;-)
 
