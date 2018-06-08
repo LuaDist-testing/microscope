@@ -104,17 +104,26 @@ do
       return c
     end
   end
-  local function makefenvs( f )
+  local function makefenvs()
     if _VERSION == "Lua 5.1" then
       return makefenv( {} )
     else
       return makefenv( nil ), makefenv( true ), makefenv( 123 ),
              makefenv( "hello" ), makefenv( func ), makefenv( light ),
-             makefenv( full ), makefenv( co ), makefenv{}
+             makefenv( full ), makefenv( co ), makefenv( {} )
+    end
+  end
+  local function makeuenvs()
+    if _VERSION ~= "Lua 5.3" then
+      return makeuenv( {} )
+    else
+      return makeuenv( nil ), makeuenv( true ), makeuenv( 123 ),
+             makeuenv( "hello" ), makeuenv( func ), makeuenv( light ),
+             makeuenv( full ), makeuenv( co ), makeuenv( {} )
     end
   end
   local t = {
-    makeuenv{}, { makefenvs() }, maketenv{}
+    { makeuenvs() }, { makefenvs() }, maketenv{}
   }
   dot( t, "all possible Lua types as environments", "environments" )
 end
@@ -271,6 +280,17 @@ do
   local t2 = { io.stdout, t1 }
   dot( t2, "with metatables", "metatables" )
   dot( t2, "without metatables", "nometatables" )
+end
+
+print( 'testing "(no-)sizes" option ...' )
+do
+  local t1 = {}
+  setmetatable( t1, {} )
+  local function f()
+    return t1, func, full, co
+  end
+  dot( f, "with sizes", "sizes" )
+  dot( f, "without sizes", "nosizes" )
 end
 
 print( "testing max_depth ..." )
@@ -439,6 +459,20 @@ do
     return "udata: abcdefghijklmnopqrstuvwxyz0123456789"
   end
   dot( { t, u }, "abbreviation in table cells" )
+end
+
+do
+  local t = {}
+  local mt = { __tostring = function() error( "Argh!" ) end }
+  setmetatable( t, mt )
+  local u = newproxy( true )
+  getmetatable( u ).__tostring = function( u )
+    error( "Argh!" )
+  end
+  debug.setmetatable( 1, mt )
+  debug.setmetatable( true, mt )
+  dot( { t, u, false, 123 }, "__tostring raising error" )
+  mt.__tostring = nil
 end
 
 -- TODO ;-)

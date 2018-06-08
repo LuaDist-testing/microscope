@@ -1,8 +1,17 @@
+-- This file was automatically generated for the LuaDist project.
+
 package = "microscope"
-version = "0.3-1"
+version = "0.4-1"
+-- LuaDist source
 source = {
-  url = "${SRCURL}"
+  tag = "0.4-1",
+  url = "git://github.com/LuaDist-testing/microscope.git"
 }
+-- Original source
+-- source = {
+--   url = "git://github.com/siffiejoe/lua-microscope.git",
+--   tag = "v0.4",
+-- }
 description = {
   summary = "Creates images of arbitrary Lua values using GraphViz",
   detailed = [[
@@ -10,11 +19,11 @@ description = {
     GraphViz .dot-files that can be transformed into a variety of
     image formats.
   ]],
-  homepage = "${HPURL}",
+  homepage = "http://siffiejoe.github.io/lua-microscope/",
   license = "MIT"
 }
 dependencies = {
-  "lua >= 5.1, <= 5.2"
+  "lua >= 5.1, < 5.4"
 }
 build = {
   type = "builtin",
@@ -22,4 +31,3 @@ build = {
     microscope = "src/microscope.lua"
   }
 }
-

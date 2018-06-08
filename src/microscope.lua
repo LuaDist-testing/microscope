@@ -11,6 +11,7 @@ local tostring = assert( tostring )
 local select = assert( select )
 local next = assert( next )
 local rawget = assert( rawget )
+local rawset = assert( rawset )
 local pcall = assert( pcall )
 local string = require( "string" )
 local ssub = assert( string.sub )
@@ -22,10 +23,18 @@ local tconcat = assert( table.concat )
 -- optional ...
 local getmetatable = getmetatable
 local getfenv = getfenv
-local debug, ioopen, corunning
+local debug, getsize, ioopen, corunning
 do
   local ok, dbg = pcall( require, "debug" )
   if ok then debug = dbg end
+  if not jit then
+    local ok, getsz = pcall( require, "getsize" )
+    if ok then getsize = getsz end
+    if not getsize and type( debug ) == "table" and
+       type( debug.getsize ) == "function" then
+      getsize = debug.getsize
+    end
+  end
   local ok, io = pcall( require, "io" )
   if ok and type( io ) == "table" and
      type( io.open ) == "function" then
@@ -210,6 +219,25 @@ else
 end
 
 
+local function ptostring( v )
+  local ok, res = pcall( tostring, v )
+  if ok then
+    return res
+  end
+  local mt = get_metatable( v, true )
+  if type( mt ) == "table" then
+    local tos = rawget( mt, "__tostring" )
+    rawset( mt, "__tostring", nil )
+    ok, res = pcall( tostring, v )
+    rawset( mt, "__tostring", tos )
+    if ok then
+      return res
+    end
+  end
+  return "<a "..type( v )..">"
+end
+
+
 
 -- scanning is done in breadth-first order using a linked list. the
 -- nodes are appended in ascending order of depth. there is also a
@@ -241,7 +269,7 @@ local function db_node( db, val, depth, key )
      (key == nil or not db.prune[ key ]) then
     db.n_nodes = db.n_nodes + 1
     node = {
-      id = tostring( db.n_nodes ),
+      id = db.n_nodes.."",
       value = val,
       depth = depth,
       shape = nil, label = nil, draw = nil, next = nil,
@@ -318,10 +346,24 @@ local function dottify_stack_ref( th, port1, st, port2, db )
     B = st, B_port = port2,
     style = "solid",
     arrowhead = "none",
-    weight = 2,
+    weight = "2",
     color = "lightgrey",
   } )
   th.draw = true
+end
+
+local function dottify_size_ref( n, port1, sn, port2, db )
+  define_edge( db, {
+    A = n, A_port = port1,
+    B = sn, B_port = port2,
+    style = "dotted",
+    label = "size",
+    arrowhead = "none",
+    color = "dimgrey",
+    fontcolor = "dimgrey",
+    fontsize = "10",
+  } )
+  sn.draw = n.draw
 end
 
 
@@ -393,7 +435,7 @@ end
 local function make_label_elem( tnode, v, db, subid, depth, alt )
   local t = type( v )
   if t == "number" or t == "boolean" then
-    return escape( tostring( v ), db.use_html )
+    return escape( ptostring( v ), db.use_html )
   elseif t == "string" then
     return quote( escape( abbrev( v ), db.use_html ) )
   else -- userdata, function, thread, table
@@ -401,7 +443,7 @@ local function make_label_elem( tnode, v, db, subid, depth, alt )
     if n then
       dottify_ref( tnode, subid, n, t == "table" and "0" or nil, db )
     end
-    alt = alt or tostring( v )
+    alt = alt or ptostring( v )
     return escape( abbrev( alt ), db.use_html )
   end
 end
@@ -411,16 +453,19 @@ local function make_html_table( db, node, val )
   local depth = node.depth
   node.shape = "plaintext"
   node.is_html_label = true
+  local header = escape( abbrev( ptostring( val ) ), true )
+  if getsize then
+    header = header.."  ["..getsize( val ).."]"
+  end
   local label = [[<TABLE BORDER="0" CELLBORDER="1" CELLSPACING="0">
-  <TR><TD PORT="0" COLSPAN="2" BGCOLOR="lightgrey">]] ..
-    escape( abbrev( tostring( val ) ), true ) .. [[
+  <TR><TD PORT="0" COLSPAN="2" BGCOLOR="lightgrey">]] ..  header .. [[
 </TD></TR>
 ]]
   local handled = {}
   -- first the array part
   local n, v = 1, rawget( val, 1 )
   while v ~= nil do
-    local el_label = make_label_elem( node, v, db, tostring( n ), depth )
+    local el_label = make_label_elem( node, v, db, n.."", depth )
     label = label .. [[
   <TR><TD PORT="]] .. n .. [[" COLSPAN="2">]] .. el_label .. [[
 </TD></TR>
@@ -450,12 +495,15 @@ end
 local function make_record_table( db, node, val )
   local depth = node.depth
   node.shape = "record"
-  local label = "{ <0> " .. escape( abbrev( tostring( val ) ), false )
+  local label = "{ <0> " .. escape( abbrev( ptostring( val ) ), false )
+  if getsize then
+    label = label.."  ["..getsize( val ).."]"
+  end
   local handled = {}
   -- first the array part
   local n,v = 1, rawget( val, 1 )
   while v ~= nil do
-    local el_label = make_label_elem( node, v, db, tostring( n ), depth )
+    local el_label = make_label_elem( node, v, db, n.."", depth )
     label = label .. " | <" .. n .. "> " .. el_label
     handled[ n ] = true
     n = n + 1
@@ -489,8 +537,8 @@ local function make_html_stack( db, node )
     node.shape = "plaintext"
     node.is_html_label = true
     local label = [[
-    <TABLE BORDER="0" CELLBORDER="1" CELLSPACING="0" COLOR="lightgrey">
-  ]]
+<TABLE BORDER="0" CELLBORDER="1" CELLSPACING="0" COLOR="lightgrey">
+]]
     for i = start, #frames do
       local frame = frames[ i ]
       local name, func = frame.name, frame.func
@@ -502,7 +550,7 @@ local function make_html_stack( db, node )
       n = n + 1
       for i = #frame, 1, -1 do
         label = label .. '  <TR><TD>' ..
-                escape( tostring( i ), true ) .. '</TD><TD>' ..
+                escape( i.."", true ) .. '</TD><TD>' ..
                 escape( abbrev( frame[ i ][ 1 ] ), true ) ..
                 '</TD><TD PORT="' .. n .. '">' ..
                 make_label_elem( node, frame[ i ][ 2 ], db, n, depth ) ..
@@ -534,7 +582,7 @@ local function make_record_stack( db, node )
       n = n + 1
       local nums, keys, values = {}, {}, {}
       for i = #frame, 1, -1 do
-        nums[ #nums+1 ] = escape( tostring( i ), false )
+        nums[ #nums+1 ] = escape( i.."", false )
         keys[ #keys+1 ] = escape( abbrev( frame[ i ][ 1 ] ), false )
         values[ #values+1 ] = "<" .. n .. "> " ..
           make_label_elem( node, frame[ i ][ 2 ], db, n, depth )
@@ -552,13 +600,13 @@ local function make_record_stack( db, node )
 end
 
 
-local function handle_metatable( db, node, val, port )
+local function handle_metatable( db, node, val )
   local mt = get_metatable( val, db.show_metatables )
   if mt ~= nil then
     local mt_node = db_node( db, mt, node.depth+1 )
     if mt_node then
       local r = type( mt ) == "table" and "0" or nil
-      dottify_metatable_ref( node, port, mt_node, r, db )
+      dottify_metatable_ref( node, nil, mt_node, r, db )
     end
   end
 end
@@ -618,6 +666,14 @@ local function handle_main_stack( db )
   end
 end
 
+local function handle_size( db, node, val )
+  if db.show_sizes and getsize then
+    local sn = db_node( db, getsize( val ), node.depth, {} )
+    sn.cb = "size"
+    dottify_size_ref( node, nil, sn, nil, db )
+  end
+end
+
 
 local function dottify_table( db, node, val )
   if db.use_html then
@@ -625,22 +681,31 @@ local function dottify_table( db, node, val )
   else
     make_record_table( db, node, val )
   end
-  handle_metatable( db, node, val, "0" )
+  handle_metatable( db, node, val )
+  handle_size( db, node, val )
 end
 
 
 local function dottify_userdata( db, node, val )
-  node.label = escape( abbrev( tostring( val ) ), false )
+  local label = escape( abbrev( ptostring( val ) ), false )
+  if getsize then
+    label = label.."  ["..getsize( val ).."]"
+  end
+  node.label = label
   node.shape = "box"
+  node.height = "0.3"
   handle_metatable( db, node, val )
   handle_environment( db, node, val )
+  handle_size( db, node, val )
 end
 
 
 local function dottify_cdata( db, node, val )
-  node.label = escape( abbrev( tostring( val ) ), false )
+  node.label = escape( abbrev( ptostring( val ) ), false )
   node.shape = "parallelogram"
   node.margin = "0.01"
+  node.width = "0.3"
+  node.height = "0.3"
   -- cdata objects *do* have a metatable but it's always
   -- the same, so it's not really interesting ...
   -- handle_metatable( db, node, val )
@@ -648,21 +713,34 @@ end
 
 
 local function dottify_thread( db, node, val )
-  node.label = escape( abbrev( tostring( val ) ), false )
-  node.group = node.label
+  local label = escape( abbrev( ptostring( val ) ), false )
+  node.group = label
+  if getsize then
+    label = label.."  ["..getsize( val ).."]"
+  end
+  node.label = label
   node.shape = "octagon"
   node.margin = "0.01"
+  node.width = "0.3"
+  node.height = "0.3"
   handle_environment( db, node, val )
   handle_stack( db, node, val )
+  handle_size( db, node, val )
 end
 
 
 local function dottify_function( db, node, val )
-  node.label = escape( abbrev( tostring( val ) ), false )
+  local label = escape( abbrev( ptostring( val ) ), false )
+  if getsize then
+    label = label.."  ["..getsize( val ).."]"
+  end
+  node.label = label
   node.shape = "ellipse"
   node.margin = "0.01"
+  node.height = "0.3"
   handle_environment( db, node, val )
   handle_upvalues( db, node, val )
+  handle_size( db, node, val )
 end
 
 
@@ -673,20 +751,31 @@ end
 
 
 local function dottify_other( db, node, val )
-  node.label = escape( abbrev( tostring( val ) ), false )
+  node.label = escape( abbrev( ptostring( val ) ), false )
   node.shape = "plaintext"
 end
 
 
 local function dottify_stack( db, node )
   if node.thread then
-    node.group = escape( abbrev( tostring( node.thread ) ), false )
+    node.group = escape( abbrev( ptostring( node.thread ) ), false )
   end
   if db.use_html then
     make_html_stack( db, node )
   else
     make_record_stack( db, node )
   end
+end
+
+
+local function dottify_size( db, node, val )
+  node.label = escape( abbrev( val.."" ), false )
+  node.shape = "circle"
+  node.width = "0.3"
+  node.margin = "0.01"
+  node.color = "lightgrey"
+  node.fontcolor = "dimgrey"
+  node.fontsize = "10"
 end
 
 
@@ -700,7 +789,8 @@ local callbacks = {
   boolean = dottify_other,
   [ "nil" ] = dottify_other,
   stack = dottify_stack,
-  cdata = dottify_cdata
+  cdata = dottify_cdata,
+  size = dottify_size,
 }
 
 local function dottify_go( db, val )
@@ -739,7 +829,8 @@ end
 
 local option_names = {
   "label", "shape", "style", "dir", "arrowhead", "arrowtail", "color",
-  "margin", "group", "weight"
+  "margin", "group", "weight", "fontcolor", "fontsize", "width",
+  "height",
 }
 
 local function process_options_as_text( obj )
@@ -797,6 +888,8 @@ local gvd_options = {
   noregistry = function( db ) db.show_registry = nil end,
   locals = function( db ) db.show_locals = true end,
   nolocals = function( db ) db.show_locals = nil end,
+  sizes = function( db ) db.show_sizes = true end,
+  nosizes = function( db ) db.show_sizes = nil end,
 }
 
 local function default_option( db, opt )
